@@ -1,0 +1,1897 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KCLT 공항 항공기 경로 시각화</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 24px;
+            text-align: center;
+        }
+        
+        .controls {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        }
+        
+        #map {
+            height: calc(100vh - 140px);
+            width: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 140px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 300px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+        
+        .route-info {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-left: 4px solid;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .departure { border-color: #e74c3c; background: rgba(231, 76, 60, 0.1); }
+        .arrival { border-color: #27ae60; background: rgba(39, 174, 96, 0.1); }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 20px; }
+            .controls { padding: 10px; }
+            .control-btn { padding: 8px 16px; font-size: 12px; }
+            .info-panel { 
+                position: relative; 
+                right: auto; 
+                top: auto; 
+                margin: 10px; 
+                max-width: none;
+            }
+            #map { height: calc(100vh - 200px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛫 KCLT 샬럿 더글러스 국제공항 항공기 경로</h1>
+    </div>
+    
+    <div class="controls">
+        <button class="control-btn active" onclick="toggleRoutes('departures')">출발 경로 (SID)</button>
+        <button class="control-btn" onclick="toggleRoutes('arrivals')">도착 경로 (STAR)</button>
+        <button class="control-btn" onclick="toggleRoutes('all')">전체 경로</button>
+        <button class="control-btn" onclick="clearRoutes()">경로 지우기</button>
+        <button class="control-btn" onclick="toggleAddresses()">주소 마커</button>
+    </div>
+    
+    <div class="info-panel">
+        <h3 style="margin-top: 0; color: #2c3e50;">📊 경로 정보</h3>
+        <div class="route-info departure">
+            <strong>🛫 출발 경로 (RNAV SID)</strong><br>
+            • BARMY5, BEAVY6, BOBZY5<br>
+            • CLT3, ESTRR5, ICONS5<br>
+            • JOJJO5, KER4, KILNS5<br>
+            • KNI3, KRITR6, KWEEN5<br>
+            • LILLS3, WEAZL5
+        </div>
+        <div class="route-info arrival">
+            <strong>🛬 도착 경로 (RNAV STAR)</strong><br>
+            • BANKR5, BTSEY2, CHSLY6<br>
+            • FILPZ4, JONZE5, JOOLS1<br>
+            • LIINN3, MAJIC4, MLLET3<br>
+            • PARQR4, RASLN3, STOCR4
+        </div>
+        <div class="route-info" style="border-color: #f39c12; background: rgba(243, 156, 18, 0.1);">
+            <strong>📍 주요 주소 위치</strong><br>
+            • 샬럿 시내 및 주변 지역<br>
+            • 총 10개 주소 마커<br>
+            • 항공기 경로와의 관계 확인
+        </div>
+        <div class="route-info" style="border-color: #2c3e50; background: rgba(44, 62, 80, 0.1);">
+            <strong>🛫 실제 활주로 정보</strong><br>
+            • 18L/36R, 18C/36C, 18R/36L<br>
+            • FlightAware 실시간 데이터 기반<br>
+            • 활주로별 정확한 출발/도착 경로
+        </div>
+        <p style="font-size: 11px; color: #7f8c8d; margin-bottom: 0;">
+            * 실제 RNAV 절차를 기반으로 한 시뮬레이션 경로입니다.
+        </p>
+    </div>
+    
+    <div id="map"></div>
+
+    <script>
+        let map;
+        let currentRoutes = [];
+        let airportMarker;
+        
+        // KCLT 공항 및 활주로 좌표 (실제 FlightAware 데이터 기반)
+        const kcltCoords = { lat: 35.214, lng: -80.943 };
+        
+        // 실제 활주로 좌표들 (KCLT 3개 평행 활주로)
+        const runways = {
+            // 18L/36R (서쪽 활주로)
+            '18L': { lat: 35.22473539, lng: -80.93615700 },  // 남쪽 끝
+            '36R': { lat: 35.20095711, lng: -80.93411722 },  // 북쪽 끝
+            
+            // 18C/36C (중앙 활주로)  
+            '18C': { lat: 35.22739584, lng: -80.95316928 },  // 남쪽 끝
+            '36C': { lat: 35.19999233, lng: -80.95081158 },  // 북쪽 끝
+            
+            // 18R/36L (동쪽 활주로)
+            '18R': { lat: 35.22528284, lng: -80.96741861 },  // 남쪽 끝
+            '36L': { lat: 35.20061881, lng: -80.96529642 },  // 북쪽 끝
+            
+            // 05/23 (동서 활주로)
+            '05': { lat: 35.20895242, lng: -80.94994570 },   // 서쪽 끝
+            '23': { lat: 35.22261623, lng: -80.93114542 }    // 동쪽 끝
+        };
+        
+        // 실제 FlightAware 기반 항공기 운항 데이터 (실시간 관찰 패턴)
+        const realFlightTracks = {
+            // 주요 출발 항공편 예시 (AAL, EDV, JIA, PDT 등)
+            departures: [
+                { flight: 'AAL730', runway: '18C', destination: 'EGLL', aircraft: 'B77W' },
+                { flight: 'AAL720', runway: '18L', destination: 'LIRF', aircraft: 'B772' },
+                { flight: 'AAL1817', runway: '18R', destination: 'CYVR', aircraft: 'A321' },
+                { flight: 'JIA5440', runway: '36C', destination: 'KGSP', aircraft: 'CRJ9' },
+                { flight: 'AAL1909', runway: '36L', destination: 'KRIC', aircraft: 'A321' }
+            ],
+            arrivals: [
+                { flight: 'AAL735', runway: '36R', origin: 'EGLL', aircraft: 'B772' },
+                { flight: 'AAL1105', runway: '36C', origin: 'KLAX', aircraft: 'A21N' },
+                { flight: 'DAL2135', runway: '36L', origin: 'KATL', aircraft: 'B712' },
+                { flight: 'EDV5047', runway: '18C', origin: 'KLGA', aircraft: 'CRJ9' },
+                { flight: 'AAL2068', runway: '18L', origin: 'KLGA', aircraft: 'A320' }
+            ]
+        };
+        
+        // 추가할 주소 좌표들
+        const addresses = [
+            { name: "5500 Shopton Rd", address: "5500 Shopton Rd, Charlotte, NC 28278", lat: 35.173402, lng: -80.974007 },
+            { name: "9105 Bowling Grn Ln", address: "9105 Bowling Grn Ln, Charlotte, NC 28273", lat: 35.148125423071725, lng: -80.9383520016528 },
+            { name: "3010 Furr Court", address: "3010 Furr court, Charlotte, NC 28273", lat: 35.15971426809154, lng: -80.96883601736452 },
+            { name: "725 Savona Mill Lane", address: "725 Savona Mill Lane Charlotte, NC 28208", lat: 35.242888492300544, lng: -80.86763340140591 },
+            { name: "1035 Strensall Ln", address: "1035 Strensall Ln, Charlotte, NC 28273", lat: 35.15838966882988, lng: -80.94633280373694 },
+            { name: "902 W 4th St", address: "902 W 4th St, Charlotte, NC 28202", lat: 35.233367513489156, lng: -80.85322618784588 },
+            { name: "1015 N Alexander St", address: "1015 N Alexander St, Charlotte, NC 28206", lat: 35.23019201515526, lng: -80.82622008744391 },
+            { name: "515 Royal Court", address: "515 Royal Court, Charlotte, NC 28202", lat: 35.21720605583318, lng: -80.84562085898207 },
+            { name: "109 W Catherine St", address: "109 W Catherine St, Charlotte, NC 28203", lat: 35.218692074288, lng: -80.85461156758895 },
+            { name: "2328 Rozzelles Ferry Rd", address: "2328 Rozzelles Ferry Rd, Charlotte, NC 28208", lat: 35.24559189067441, lng: -80.86574655755952 }
+        ];
+        
+        let addressMarkers = [];
+        
+        // RNAV SID 출발 경로 데이터 (실제 활주로 기반)
+        const departureRoutes = [
+            // 18L 활주로 출발 (서쪽 활주로)
+            {
+                name: 'AAL1687',
+                type: 'departure',
+                runway: '18L',
+                color: '#e74c3c',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2313, lng: -80.9367 },
+					{ lat: 35.2434, lng: -80.9336 },
+					{ lat: 35.2565, lng: -80.9283 },
+					{ lat: 35.2713, lng: -80.9224 },
+					{ lat: 35.2982, lng: -80.9113 },
+					{ lat: 35.3224, lng: -80.9016 },
+					{ lat: 35.3406, lng: -80.8890 },
+					{ lat: 35.3528, lng: -80.8656 },
+					{ lat: 35.3569, lng: -80.8378 },
+					{ lat: 35.3624, lng: -80.7857 },
+					{ lat: 35.3678, lng: -80.7360 },
+					{ lat: 35.3734, lng: -80.6839 },
+					{ lat: 35.3790, lng: -80.6317 },
+					{ lat: 35.3845, lng: -80.5800 },
+					{ lat: 35.3901, lng: -80.5278 },
+					{ lat: 35.3963, lng: -80.4704 },
+					{ lat: 35.4029, lng: -80.4102 },
+					{ lat: 35.4100, lng: -80.3440 },
+					{ lat: 35.4170, lng: -80.2783 },
+					{ lat: 35.4244, lng: -80.2087 },
+					{ lat: 35.4296, lng: -80.1674 },
+					{ lat: 35.4538, lng: -80.0802 },
+					{ lat: 35.4753, lng: -80.0097 },
+					{ lat: 35.4987, lng: -79.9329 },
+                ]
+            },
+            {
+                name: 'AAL436',
+                type: 'departure',
+                runway: '18L',
+                color: '#c0392b',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2266, lng: -80.9362 },
+					{ lat: 35.2401, lng: -80.9325 },
+					{ lat: 35.2437, lng: -80.9310 },
+					{ lat: 35.2533, lng: -80.9269 },
+					{ lat: 35.2683, lng: -80.9205 },
+					{ lat: 35.2835, lng: -80.9093 },
+					{ lat: 35.2934, lng: -80.8881 },
+					{ lat: 35.2974, lng: -80.8598 },
+					{ lat: 35.3029, lng: -80.8099 },
+					{ lat: 35.3086, lng: -80.7592 },
+					{ lat: 35.3114, lng: -80.7315 },
+					{ lat: 35.3066, lng: -80.7030 },
+					{ lat: 35.2921, lng: -80.6821 },
+					{ lat: 35.2703, lng: -80.6655 },
+					{ lat: 35.2403, lng: -80.6435 },
+					{ lat: 35.2193, lng: -80.6352 },
+					{ lat: 35.1953, lng: -80.6406 },
+					{ lat: 35.1523, lng: -80.6727 },
+					{ lat: 35.1115, lng: -80.7024 },
+					{ lat: 35.0711, lng: -80.7324 },
+					{ lat: 35.0299, lng: -80.7627 },
+					{ lat: 34.9889, lng: -80.7930 },
+					{ lat: 34.9450, lng: -80.8254 },
+					{ lat: 34.9039, lng: -80.8556 },
+					{ lat: 34.8607, lng: -80.8873 },
+					{ lat: 34.8163, lng: -80.9200 },
+					{ lat: 34.7713, lng: -80.9530 },
+					{ lat: 34.7264, lng: -80.9860 },
+                ]
+            },
+            {
+                name: 'AAL2183',
+                type: 'departure',
+                runway: '18L',
+                color: '#ec7063',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2219, lng: -80.9358 },
+					{ lat: 35.2344, lng: -80.9356 },
+					{ lat: 35.2462, lng: -80.9315 },
+					{ lat: 35.2597, lng: -80.9256 },
+					{ lat: 35.2735, lng: -80.9197 },
+					{ lat: 35.2892, lng: -80.9043 },
+					{ lat: 35.2955, lng: -80.8823 },
+					{ lat: 35.2988, lng: -80.8527 },
+					{ lat: 35.3042, lng: -80.8039 },
+					{ lat: 35.3063, lng: -80.7727 },
+					{ lat: 35.2984, lng: -80.7442 },
+					{ lat: 35.2818, lng: -80.7249 },
+					{ lat: 35.2561, lng: -80.7057 },
+					{ lat: 35.2309, lng: -80.6870 },
+					{ lat: 35.2028, lng: -80.6780 },
+					{ lat: 35.1620, lng: -80.6963 },
+					{ lat: 35.1210, lng: -80.7168 },
+					{ lat: 35.0790, lng: -80.7384 },
+					{ lat: 35.0348, lng: -80.7610 },
+					{ lat: 34.9904, lng: -80.7839 },
+					{ lat: 34.9440, lng: -80.8076 },
+					{ lat: 34.9017, lng: -80.8293 },
+					{ lat: 34.8541, lng: -80.8536 },
+					{ lat: 34.8076, lng: -80.8774 },
+					{ lat: 34.7598, lng: -80.9018 },
+					{ lat: 34.7090, lng: -80.9277 },
+					{ lat: 34.6559, lng: -80.9547 },
+                ]
+            },
+            {
+                name: 'AAL1895',
+                type: 'departure',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2282, lng: -80.9359 },
+					{ lat: 35.2406, lng: -80.9315 },
+					{ lat: 35.2533, lng: -80.9257 },
+					{ lat: 35.2673, lng: -80.9192 },
+					{ lat: 35.2961, lng: -80.9057 },
+					{ lat: 35.3159, lng: -80.8930 },
+					{ lat: 35.3289, lng: -80.8704 },
+					{ lat: 35.3335, lng: -80.8439 },
+					{ lat: 35.3346, lng: -80.8191 },
+					{ lat: 35.3259, lng: -80.7902 },
+					{ lat: 35.3088, lng: -80.7582 },
+					{ lat: 35.2872, lng: -80.7165 },
+					{ lat: 35.2640, lng: -80.6718 },
+					{ lat: 35.2392, lng: -80.6247 },
+					{ lat: 35.2107, lng: -80.5700 },
+					{ lat: 35.1801, lng: -80.5116 },
+					{ lat: 35.1549, lng: -80.4622 },
+					{ lat: 35.1434, lng: -80.4217 },
+					{ lat: 35.1416, lng: -80.3802 },
+					{ lat: 35.1394, lng: -80.3071 },
+					{ lat: 35.1372, lng: -80.2334 },
+					{ lat: 35.1350, lng: -80.1581 },
+					{ lat: 35.1329, lng: -80.0872 },
+					{ lat: 35.1306, lng: -80.0121 },
+					{ lat: 35.1284, lng: -79.9406 },
+                ]
+            },
+            {
+                name: 'AAL493',
+                type: 'departure',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2342, lng: -80.9356 },
+					{ lat: 35.2481, lng: -80.9314 },
+					{ lat: 35.2622, lng: -80.9253 },
+					{ lat: 35.2784, lng: -80.9180 },
+					{ lat: 35.2989, lng: -80.9090 },
+					{ lat: 35.3329, lng: -80.8936 },
+					{ lat: 35.3504, lng: -80.8781 },
+					{ lat: 35.3611, lng: -80.8511 },
+					{ lat: 35.3615, lng: -80.8206 },
+					{ lat: 35.3572, lng: -80.7717 },
+					{ lat: 35.3528, lng: -80.7208 },
+					{ lat: 35.3486, lng: -80.6691 },
+					{ lat: 35.3447, lng: -80.6195 },
+					{ lat: 35.3405, lng: -80.5690 },
+					{ lat: 35.3360, lng: -80.5151 },
+					{ lat: 35.3310, lng: -80.4564 },
+					{ lat: 35.3256, lng: -80.3925 },
+					{ lat: 35.3200, lng: -80.3275 },
+					{ lat: 35.3137, lng: -80.2544 },
+					{ lat: 35.3078, lng: -80.1863 },
+					{ lat: 35.3040, lng: -80.1393 },
+					{ lat: 35.3052, lng: -80.1000 },
+					{ lat: 35.3136, lng: -80.0532 },
+					{ lat: 35.3333, lng: -79.9860 },
+                ]
+            },
+            {
+                name: 'PDT5904',
+                type: 'departure',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2269, lng: -80.9364 },
+					{ lat: 35.2405, lng: -80.9348 },
+					{ lat: 35.2537, lng: -80.9290 },
+					{ lat: 35.2680, lng: -80.9222 },
+					{ lat: 35.2811, lng: -80.9057 },
+					{ lat: 35.2923, lng: -80.8781 },
+					{ lat: 35.3092, lng: -80.8359 },
+					{ lat: 35.3252, lng: -80.7955 },
+					{ lat: 35.3292, lng: -80.7676 },
+					{ lat: 35.3202, lng: -80.7377 },
+					{ lat: 35.3049, lng: -80.7083 },
+					{ lat: 35.2857, lng: -80.6762 },
+					{ lat: 35.2605, lng: -80.6337 },
+					{ lat: 35.2327, lng: -80.5850 },
+					{ lat: 35.2053, lng: -80.5366 },
+					{ lat: 35.1821, lng: -80.4950 },
+					{ lat: 35.1537, lng: -80.4437 },
+					{ lat: 35.1226, lng: -80.3883 },
+					{ lat: 35.0927, lng: -80.3345 },
+					{ lat: 35.0609, lng: -80.2780 },
+					{ lat: 35.0287, lng: -80.2211 },
+					{ lat: 34.9970, lng: -80.1638 },
+					{ lat: 34.9830, lng: -80.1280 },
+					{ lat: 34.9718, lng: -80.0878 },
+                ]
+            },
+            {
+                name: 'AAL3163',
+                type: 'departure',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+                    runways['18L'],
+					{ lat: 35.2212, lng: -80.9358 },
+					{ lat: 35.2353, lng: -80.9335 },
+					{ lat: 35.2480, lng: -80.9286 },
+					{ lat: 35.2623, lng: -80.9222 },
+					{ lat: 35.2795, lng: -80.9144 },
+					{ lat: 35.2974, lng: -80.9065 },
+					{ lat: 35.3164, lng: -80.8925 },
+					{ lat: 35.3267, lng: -80.8719 },
+					{ lat: 35.3318, lng: -80.8392 },
+					{ lat: 35.3287, lng: -80.8064 },
+					{ lat: 35.2993, lng: -80.7469 },
+					{ lat: 35.2726, lng: -80.6953 },
+					{ lat: 35.2477, lng: -80.6470 },
+					{ lat: 35.2207, lng: -80.5949 },
+					{ lat: 35.1942, lng: -80.5434 },
+					{ lat: 35.1678, lng: -80.4923 },
+					{ lat: 35.1412, lng: -80.4409 },
+					{ lat: 35.1139, lng: -80.3889 },
+					{ lat: 35.0878, lng: -80.3386 },
+					{ lat: 35.0614, lng: -80.2881 },
+					{ lat: 35.0328, lng: -80.2332 },
+					{ lat: 35.0064, lng: -80.1829 },
+					{ lat: 34.9917, lng: -80.1517 },
+					{ lat: 34.9727, lng: -80.0802 },
+                ]
+            },
+
+
+            // 18C 활주로 출발 (중앙 활주로)
+            {
+                name: 'UAL671',
+                type: 'departure',
+                runway: '18C',
+                color: '#e67e22',
+                path: [
+                    runways['18C'],
+					{ lat: 35.2242, lng: -80.9528 },
+					{ lat: 35.2365, lng: -80.9548 },
+					{ lat: 35.2461, lng: -80.9621 },
+					{ lat: 35.2566, lng: -80.9709 },
+					{ lat: 35.2685, lng: -80.9809 },
+					{ lat: 35.2835, lng: -80.9946 },
+					{ lat: 35.3004, lng: -81.0233 },
+					{ lat: 35.3205, lng: -81.0579 },
+					{ lat: 35.3415, lng: -81.0946 },
+					{ lat: 35.3628, lng: -81.1323 },
+					{ lat: 35.3968, lng: -81.1928 },
+					{ lat: 35.4210, lng: -81.2359 },
+					{ lat: 35.4464, lng: -81.2809 },
+					{ lat: 35.4736, lng: -81.3282 },
+					{ lat: 35.5022, lng: -81.3777 },
+					{ lat: 35.5297, lng: -81.4255 },
+					{ lat: 35.5462, lng: -81.4540 },
+					{ lat: 35.5680, lng: -81.4807 },
+					{ lat: 35.6184, lng: -81.5259 },
+					{ lat: 35.6620, lng: -81.5647 },
+					{ lat: 35.7070, lng: -81.6040 },
+					{ lat: 35.7521, lng: -81.6434 },
+					{ lat: 35.7953, lng: -81.6813 },
+					{ lat: 35.8434, lng: -81.7236 },
+                ]
+            },
+            {
+                name: 'AAL1683',
+                type: 'departure',
+                runway: '18C',
+                color: '#e74c3c',
+                path: [
+                    runways['18C'],
+					{ lat: 35.2344, lng: -80.9536 },
+					{ lat: 35.2467, lng: -80.9597 },
+					{ lat: 35.2600, lng: -80.9664 },
+					{ lat: 35.2777, lng: -80.9688 },
+					{ lat: 35.3013, lng: -80.9711 },
+					{ lat: 35.3398, lng: -80.9748 },
+					{ lat: 35.3642, lng: -80.9760 },
+					{ lat: 35.4031, lng: -80.9784 },
+					{ lat: 35.4446, lng: -80.9809 },
+					{ lat: 35.4830, lng: -80.9834 },
+					{ lat: 35.5232, lng: -80.9860 },
+					{ lat: 35.5649, lng: -80.9886 },
+					{ lat: 35.5852, lng: -80.9913 },
+					{ lat: 35.6040, lng: -81.0062 },
+					{ lat: 35.6235, lng: -81.0308 },
+					{ lat: 35.6560, lng: -81.0673 },
+					{ lat: 35.6802, lng: -81.0829 },
+					{ lat: 35.7078, lng: -81.0888 },
+					{ lat: 35.7756, lng: -81.0947 },
+					{ lat: 35.8244, lng: -81.0988 },
+					{ lat: 35.8757, lng: -81.1030 },
+					{ lat: 35.9278, lng: -81.1071 },
+					{ lat: 35.9811, lng: -81.1113 },
+					{ lat: 36.0347, lng: -81.1156 },
+                ]
+            },
+            {
+                name: 'AAL1885',
+                type: 'departure',
+                runway: '18C',
+                color: '#d35400',
+                path: [
+                    runways['18C'],
+					{ lat: 35.2183, lng: -80.9524 },
+					{ lat: 35.2293, lng: -80.9539 },
+					{ lat: 35.2404, lng: -80.9607 },
+					{ lat: 35.2509, lng: -80.9687 },
+					{ lat: 35.2653, lng: -80.9714 },
+					{ lat: 35.2797, lng: -80.9651 },
+					{ lat: 35.2938, lng: -80.9465 },
+					{ lat: 35.3002, lng: -80.9232 },
+					{ lat: 35.3049, lng: -80.8820 },
+					{ lat: 35.3102, lng: -80.8346 },
+					{ lat: 35.3124, lng: -80.8079 },
+					{ lat: 35.3065, lng: -80.7798 },
+					{ lat: 35.2817, lng: -80.7288 },
+					{ lat: 35.2544, lng: -80.6746 },
+					{ lat: 35.2292, lng: -80.6246 },
+					{ lat: 35.2014, lng: -80.5693 },
+					{ lat: 35.1754, lng: -80.5175 },
+					{ lat: 35.1475, lng: -80.4624 },
+					{ lat: 35.1178, lng: -80.4036 },
+					{ lat: 35.0857, lng: -80.3401 },
+					{ lat: 35.0531, lng: -80.2754 },
+					{ lat: 35.0193, lng: -80.2089 },
+					{ lat: 34.9997, lng: -80.1695 },
+					{ lat: 34.9827, lng: -80.1195 },
+					{ lat: 34.9644, lng: -80.0460 },
+					{ lat: 34.9459, lng: -79.9726 },
+					{ lat: 34.9377, lng: -79.9249 },
+					{ lat: 34.9396, lng: -79.8490 },
+                ]
+            },
+            {
+                name: 'AAL1419',
+                type: 'departure',
+                runway: '18C',
+                color: '#d35400',
+                path: [
+                    runways['18C'],
+					{ lat: 35.2284, lng: -80.9533 },
+					{ lat: 35.2407, lng: -80.9577 },
+					{ lat: 35.2530, lng: -80.9664 },
+					{ lat: 35.2642, lng: -80.9750 },
+					{ lat: 35.2769, lng: -80.9851 },
+					{ lat: 35.2870, lng: -81.0068 },
+					{ lat: 35.2855, lng: -81.0443 },
+					{ lat: 35.2814, lng: -81.0884 },
+					{ lat: 35.2755, lng: -81.1129 },
+					{ lat: 35.2624, lng: -81.1300 },
+					{ lat: 35.2413, lng: -81.1526 },
+					{ lat: 35.2248, lng: -81.1663 },
+					{ lat: 35.2007, lng: -81.1701 },
+					{ lat: 35.1472, lng: -81.1520 },
+					{ lat: 35.1035, lng: -81.1372 },
+					{ lat: 35.0599, lng: -81.1223 },
+					{ lat: 35.0116, lng: -81.1057 },
+					{ lat: 34.9663, lng: -81.0903 },
+					{ lat: 34.9196, lng: -81.0743 },
+					{ lat: 34.8695, lng: -81.0573 },
+					{ lat: 34.8195, lng: -81.0403 },
+					{ lat: 34.7710, lng: -81.0238 },
+					{ lat: 34.7199, lng: -81.0064 },
+                ]
+            },
+
+            <!-- // 18R 활주로 출발 (동쪽 활주로) -->
+            <!-- { -->
+                <!-- name: 'BEAVY SIX Departure via 18R', -->
+                <!-- type: 'departure', -->
+                <!-- runway: '18R', -->
+                <!-- color: '#34495e', -->
+                <!-- path: [ -->
+                    <!-- runways['18R'], -->
+                    <!-- { lat: 35.175, lng: -80.920 }, -->
+                    <!-- { lat: 35.140, lng: -80.890 }, -->
+                    <!-- { lat: 35.080, lng: -80.830 }, -->
+                    <!-- { lat: 35.000, lng: -80.740 }, -->
+                    <!-- { lat: 34.900, lng: -80.620 } -->
+                <!-- ] -->
+            <!-- }, -->
+            <!-- { -->
+                <!-- name: 'LILLS THREE Departure via 18R', -->
+                <!-- type: 'departure', -->
+                <!-- runway: '18R', -->
+                <!-- color: '#a569bd', -->
+                <!-- path: [ -->
+                    <!-- runways['18R'], -->
+                    <!-- { lat: 35.170, lng: -80.915 }, -->
+                    <!-- { lat: 35.130, lng: -80.870 }, -->
+                    <!-- { lat: 35.070, lng: -80.800 }, -->
+                    <!-- { lat: 34.990, lng: -80.700 }, -->
+                    <!-- { lat: 34.880, lng: -80.570 } -->
+                <!-- ] -->
+            <!-- }, -->
+
+            // 36L 활주로 출발 (동쪽 활주로, 북향)
+            <!-- { -->
+                <!-- name: 'AAL969', -->
+                <!-- type: 'departure', -->
+                <!-- runway: '36L', -->
+                <!-- color: '#9b59b6', -->
+                <!-- path: [ -->
+                    <!-- runways['36L'], -->
+                    <!-- { lat: 35.250, lng: -80.900 }, -->
+                    <!-- { lat: 35.280, lng: -80.880 }, -->
+                    <!-- { lat: 35.330, lng: -80.840 }, -->
+                    <!-- { lat: 35.400, lng: -80.780 }, -->
+                    <!-- { lat: 35.500, lng: -80.680 } -->
+                <!-- ] -->
+            <!-- }, -->
+            <!-- { -->
+                <!-- name: 'KILNS FIVE Departure via 36L', -->
+                <!-- type: 'departure', -->
+                <!-- runway: '36L', -->
+                <!-- color: '#f39c12', -->
+                <!-- path: [ -->
+                    <!-- runways['36L'], -->
+                    <!-- { lat: 35.255, lng: -80.895 }, -->
+                    <!-- { lat: 35.290, lng: -80.860 }, -->
+                    <!-- { lat: 35.350, lng: -80.800 }, -->
+                    <!-- { lat: 35.430, lng: -80.720 }, -->
+                    <!-- { lat: 35.540, lng: -80.600 } -->
+                <!-- ] -->
+            <!-- }, -->
+
+            // 36C 활주로 출발 (중앙 활주로, 북향)
+            {
+                name: 'AAL2055',
+                type: 'departure',
+                runway: '36C',
+                color: '#8e44ad',
+                path: [
+                    runways['36C'],
+					{ lat: 35.1973, lng: -80.9505 },
+					{ lat: 35.1852, lng: -80.9505 },
+					{ lat: 35.1731, lng: -80.9505 },
+					{ lat: 35.1596, lng: -80.9533 },
+					{ lat: 35.1463, lng: -80.9621 },
+					{ lat: 35.1263, lng: -80.9893 },
+					{ lat: 35.1158, lng: -81.0149 },
+					{ lat: 35.1127, lng: -81.0385 },
+					{ lat: 35.1153, lng: -81.0700 },
+					{ lat: 35.1221, lng: -81.1043 },
+					{ lat: 35.1276, lng: -81.1382 },
+					{ lat: 35.1328, lng: -81.1823 },
+					{ lat: 35.1414, lng: -81.2520 },
+					{ lat: 35.1472, lng: -81.3009 },
+					{ lat: 35.1535, lng: -81.3546 },
+					{ lat: 35.1599, lng: -81.4091 },
+					{ lat: 35.1664, lng: -81.4663 },
+					{ lat: 35.1737, lng: -81.5301 },
+					{ lat: 35.1812, lng: -81.5948 },
+					{ lat: 35.1851, lng: -81.6394 },
+					{ lat: 35.1838, lng: -81.7214 },
+					{ lat: 35.1826, lng: -81.7904 },
+					{ lat: 35.1811, lng: -81.8605 },
+					{ lat: 35.1795, lng: -81.9326 },
+					{ lat: 35.1779, lng: -82.0042 },
+					{ lat: 35.1763, lng: -82.0789 },
+					{ lat: 35.1746, lng: -82.1502 },
+					{ lat: 35.1758, lng: -82.2090 },
+                ]
+            },
+            {
+                name: 'FFT3407',
+                type: 'departure',
+                runway: '36C',
+                color: '#8e44ad',
+                path: [
+                    runways['36C'],
+					{ lat: 35.2076, lng: -80.9516 },
+					{ lat: 35.1963, lng: -80.9510 },
+					{ lat: 35.1852, lng: -80.9510 },
+					{ lat: 35.1720, lng: -80.9512 },
+					{ lat: 35.1576, lng: -80.9513 },
+					{ lat: 35.1423, lng: -80.9516 },
+					{ lat: 35.1058, lng: -80.9518 },
+					{ lat: 35.0663, lng: -80.9509 },
+					{ lat: 35.0267, lng: -80.9492 },
+					{ lat: 34.9774, lng: -80.9470 },
+					{ lat: 34.9566, lng: -80.9514 },
+					{ lat: 34.9326, lng: -80.9607 },
+					{ lat: 34.8884, lng: -80.9778 },
+					{ lat: 34.8427, lng: -80.9953 },
+					{ lat: 34.7976, lng: -81.0127 },
+					{ lat: 34.7503, lng: -81.0309 },
+					{ lat: 34.6972, lng: -81.0514 },
+					{ lat: 34.6440, lng: -81.0719 },
+					{ lat: 34.5874, lng: -81.0936 },
+					{ lat: 34.5540, lng: -81.1043 },
+					{ lat: 34.4965, lng: -81.1164 },
+					{ lat: 34.4374, lng: -81.1292 },
+					{ lat: 34.3791, lng: -81.1419 },
+					{ lat: 34.3034, lng: -81.1640 },
+                ]
+            },
+            {
+                name: 'AAL3087',
+                type: 'departure',
+                runway: '36C',
+                color: '#27ae60',
+                path: [
+                    runways['36C'],
+					{ lat: 35.2037, lng: -80.9512 },
+					{ lat: 35.1921, lng: -80.9512 },
+					{ lat: 35.1810, lng: -80.9518 },
+					{ lat: 35.1677, lng: -80.9537 },
+					{ lat: 35.1583, lng: -80.9639 },
+					{ lat: 35.1495, lng: -80.9780 },
+					{ lat: 35.1392, lng: -80.9959 },
+					{ lat: 35.1341, lng: -81.0177 },
+					{ lat: 35.1395, lng: -81.0429 },
+					{ lat: 35.1579, lng: -81.0651 },
+					{ lat: 35.1882, lng: -81.0953 },
+					{ lat: 35.2168, lng: -81.1243 },
+					{ lat: 35.2481, lng: -81.1562 },
+					{ lat: 35.2824, lng: -81.1911 },
+					{ lat: 35.3160, lng: -81.2251 },
+					{ lat: 35.3518, lng: -81.2617 },
+					{ lat: 35.3881, lng: -81.2985 },
+					{ lat: 35.4158, lng: -81.3287 },
+					{ lat: 35.4395, lng: -81.3663 },
+					{ lat: 35.4655, lng: -81.4189 },
+					{ lat: 35.4852, lng: -81.4684 },
+					{ lat: 35.5078, lng: -81.5291 },
+					{ lat: 35.5244, lng: -81.5827 },
+					{ lat: 35.5431, lng: -81.6499 },
+					{ lat: 35.5607, lng: -81.7129 },
+					{ lat: 35.5722, lng: -81.7528 },
+					{ lat: 35.5857, lng: -81.7844 },
+					{ lat: 35.6174, lng: -81.8366 },
+					{ lat: 35.6449, lng: -81.8749 },
+					{ lat: 35.6840, lng: -81.9292 },
+					{ lat: 35.7236, lng: -81.9843 },
+					{ lat: 35.7640, lng: -82.0404 },
+					{ lat: 35.8067, lng: -82.0998 },
+					{ lat: 35.8474, lng: -82.1566 },
+					{ lat: 35.8881, lng: -82.2133 },
+					{ lat: 35.9319, lng: -82.2746 },
+					{ lat: 35.9721, lng: -82.3310 },
+					{ lat: 36.0131, lng: -82.3885 },
+					{ lat: 36.0556, lng: -82.4482 },
+					{ lat: 36.0977, lng: -82.5075 },
+					{ lat: 36.1380, lng: -82.5644 },
+					{ lat: 36.1793, lng: -82.6228 },
+					{ lat: 36.2213, lng: -82.6822 },
+					{ lat: 36.2607, lng: -82.7381 },
+					{ lat: 36.3012, lng: -82.7958 },
+					{ lat: 36.3425, lng: -82.8545 },
+					{ lat: 36.3827, lng: -82.9118 },
+					{ lat: 36.4246, lng: -82.9715 },
+					{ lat: 36.4631, lng: -83.0264 },
+					{ lat: 36.5050, lng: -83.0864 },
+					{ lat: 36.5458, lng: -83.1449 },
+					{ lat: 36.5891, lng: -83.2070 },
+					{ lat: 36.6266, lng: -83.2611 },
+					{ lat: 36.6685, lng: -83.3214 },
+					{ lat: 36.7086, lng: -83.3795 },
+					{ lat: 36.7480, lng: -83.4365 },
+                ]
+            },
+            {
+                name: 'AAL732',
+                type: 'departure',
+                runway: '36C',
+                color: '#2c3e50',
+                path: [
+                    runways['36C'],
+					{ lat: 35.2028, lng: -80.9511 },
+					{ lat: 35.1990, lng: -80.9507 },
+					{ lat: 35.1908, lng: -80.9498 },
+					{ lat: 35.1786, lng: -80.9483 },
+					{ lat: 35.1649, lng: -80.9460 },
+					{ lat: 35.1517, lng: -80.9385 },
+					{ lat: 35.1370, lng: -80.9187 },
+					{ lat: 35.1143, lng: -80.8839 },
+					{ lat: 35.0905, lng: -80.8476 },
+					{ lat: 35.0724, lng: -80.8192 },
+					{ lat: 35.0654, lng: -80.7928 },
+					{ lat: 35.0674, lng: -80.7549 },
+					{ lat: 35.0746, lng: -80.7172 },
+					{ lat: 35.0865, lng: -80.6698 },
+					{ lat: 35.1052, lng: -80.5923 },
+					{ lat: 35.1193, lng: -80.5359 },
+					{ lat: 35.1342, lng: -80.4765 },
+					{ lat: 35.1550, lng: -80.3872 },
+					{ lat: 35.1715, lng: -80.3241 },
+					{ lat: 35.1884, lng: -80.2610 },
+					{ lat: 35.2056, lng: -80.1948 },
+					{ lat: 35.2226, lng: -80.1295 },
+					{ lat: 35.2404, lng: -80.0616 },
+					{ lat: 35.2584, lng: -79.9952 },
+					{ lat: 35.2771, lng: -79.9247 },
+					{ lat: 35.2949, lng: -79.8564 },
+					{ lat: 35.3141, lng: -79.7811 },
+					{ lat: 35.3332, lng: -79.7060 },
+					{ lat: 35.3520, lng: -79.6548 },
+					{ lat: 35.3725, lng: -79.6154 },
+					{ lat: 35.4057, lng: -79.5684 },
+					{ lat: 35.4532, lng: -79.5069 },
+					{ lat: 35.4981, lng: -79.4490 },
+					{ lat: 35.5455, lng: -79.3878 },
+					{ lat: 35.5962, lng: -79.3221 },
+					{ lat: 35.6450, lng: -79.2586 },
+                ]
+            },
+            {
+                name: 'DLH429',
+                type: 'departure',
+                runway: '36C',
+                color: '#2c3e50',
+                path: [
+                    runways['36C'],
+					{ lat: 35.2020, lng: -80.9508 },
+					{ lat: 35.1913, lng: -80.9509 },
+					{ lat: 35.1791, lng: -80.9511 },
+					{ lat: 35.1665, lng: -80.9510 },
+					{ lat: 35.1514, lng: -80.9508 },
+					{ lat: 35.1346, lng: -80.9413 },
+					{ lat: 35.1183, lng: -80.9200 },
+					{ lat: 35.1084, lng: -80.8959 },
+					{ lat: 35.1063, lng: -80.8688 },
+					{ lat: 35.1057, lng: -80.8212 },
+					{ lat: 35.1048, lng: -80.7708 },
+					{ lat: 35.1035, lng: -80.7183 },
+					{ lat: 35.1065, lng: -80.6846 },
+					{ lat: 35.1180, lng: -80.6370 },
+					{ lat: 35.1304, lng: -80.5865 },
+					{ lat: 35.1434, lng: -80.5336 },
+					{ lat: 35.1571, lng: -80.4784 },
+					{ lat: 35.1722, lng: -80.4194 },
+					{ lat: 35.1881, lng: -80.3597 },
+					{ lat: 35.2037, lng: -80.3010 },
+					{ lat: 35.2200, lng: -80.2397 },
+					{ lat: 35.2365, lng: -80.1785 },
+					{ lat: 35.2539, lng: -80.1157 },
+					{ lat: 35.2717, lng: -80.0522 },
+					{ lat: 35.2881, lng: -79.9939 },
+					{ lat: 35.3075, lng: -79.9515 },
+                ]
+            },
+            {
+                name: 'SWA3002',
+                type: 'departure',
+                runway: '36C',
+                color: '#2c3e50',
+                path: [
+                    runways['36C'],
+					{ lat: 35.2010, lng: -80.9510 },
+					{ lat: 35.1883, lng: -80.9513 },
+					{ lat: 35.1767, lng: -80.9518 },
+					{ lat: 35.1623, lng: -80.9547 },
+					{ lat: 35.1514, lng: -80.9668 },
+					{ lat: 35.1356, lng: -80.9911 },
+					{ lat: 35.1246, lng: -81.0131 },
+					{ lat: 35.1199, lng: -81.0466 },
+					{ lat: 35.1157, lng: -81.0896 },
+					{ lat: 35.1155, lng: -81.1155 },
+					{ lat: 35.1231, lng: -81.1423 },
+					{ lat: 35.1353, lng: -81.1616 },
+					{ lat: 35.1572, lng: -81.1792 },
+					{ lat: 35.1824, lng: -81.1913 },
+					{ lat: 35.2152, lng: -81.1908 },
+					{ lat: 35.2667, lng: -81.1784 },
+					{ lat: 35.2977, lng: -81.1765 },
+					{ lat: 35.3482, lng: -81.1750 },
+					{ lat: 35.3983, lng: -81.1737 },
+					{ lat: 35.4286, lng: -81.1688 },
+					{ lat: 35.4635, lng: -81.1579 },
+					{ lat: 35.5153, lng: -81.1404 },
+					{ lat: 35.5632, lng: -81.1242 },
+					{ lat: 35.6157, lng: -81.1064 },
+					{ lat: 35.6668, lng: -81.0918 },
+					{ lat: 35.6973, lng: -81.0892 },
+                ]
+            },
+            {
+                name: 'AAL732',
+                type: 'departure',
+                runway: '36C',
+                color: '#16a085',
+                path: [
+                    runways['36C'],
+					{ lat: 35.1956, lng: -80.9335 },
+					{ lat: 35.1844, lng: -80.9320 },
+					{ lat: 35.1713, lng: -80.9298 },
+					{ lat: 35.1583, lng: -80.9278 },
+					{ lat: 35.1290, lng: -80.9229 },
+					{ lat: 35.0928, lng: -80.9168 },
+					{ lat: 35.0552, lng: -80.9103 },
+					{ lat: 35.0232, lng: -80.9056 },
+					{ lat: 34.9855, lng: -80.9101 },
+					{ lat: 34.9469, lng: -80.9169 },
+					{ lat: 34.8844, lng: -80.9274 },
+					{ lat: 34.8379, lng: -80.9355 },
+					{ lat: 34.7932, lng: -80.9432 },
+					{ lat: 34.7456, lng: -80.9513 },
+					{ lat: 34.6973, lng: -80.9594 },
+					{ lat: 34.6477, lng: -80.9680 },
+					{ lat: 34.6126, lng: -80.9733 },
+					{ lat: 34.5582, lng: -80.9785 },
+					{ lat: 34.4991, lng: -80.9840 },
+					{ lat: 34.4398, lng: -80.9895 },
+					{ lat: 34.3802, lng: -80.9950 },
+					{ lat: 34.3174, lng: -81.0009 },
+					{ lat: 34.2562, lng: -81.0066 },
+					{ lat: 34.1923, lng: -81.0126 },
+					{ lat: 34.1258, lng: -81.0188 },
+					{ lat: 34.0638, lng: -81.0245 },
+					{ lat: 33.9989, lng: -81.0305 },
+					{ lat: 33.9317, lng: -81.0315 },
+					{ lat: 33.8692, lng: -81.0310 },
+					{ lat: 33.8038, lng: -81.0305 },
+                ]
+            },
+
+
+            // 36R 활주로 출발 (서쪽 활주로, 북향)
+            {
+                name: 'UAL723',
+                type: 'departure',
+                runway: '36R',
+                color: '#16a085',
+                path: [
+                    runways['36R'],
+					{ lat: 35.2020, lng: -80.9342 },
+					{ lat: 35.1892, lng: -80.9330 },
+					{ lat: 35.1771, lng: -80.9316 },
+					{ lat: 35.1630, lng: -80.9299 },
+					{ lat: 35.1487, lng: -80.9237 },
+					{ lat: 35.1360, lng: -80.9067 },
+					{ lat: 35.1263, lng: -80.8872 },
+					{ lat: 35.1240, lng: -80.8530 },
+					{ lat: 35.1235, lng: -80.8252 },
+					{ lat: 35.1311, lng: -80.7877 },
+					{ lat: 35.1423, lng: -80.7399 },
+					{ lat: 35.1540, lng: -80.6886 },
+					{ lat: 35.1660, lng: -80.6365 },
+					{ lat: 35.1792, lng: -80.5793 },
+					{ lat: 35.1924, lng: -80.5243 },
+					{ lat: 35.2069, lng: -80.4647 },
+					{ lat: 35.2227, lng: -80.4001 },
+					{ lat: 35.2384, lng: -80.3363 },
+					{ lat: 35.2548, lng: -80.2697 },
+					{ lat: 35.2724, lng: -80.2013 },
+					{ lat: 35.2894, lng: -80.1378 },
+					{ lat: 35.3109, lng: -80.0923 },
+                ]
+            },
+            {
+                name: 'AAL2695',
+                type: 'departure',
+                runway: '36R',
+                color: '#2980b9',
+                path: [
+                    runways['36R'],
+					{ lat: 35.1947, lng: -80.9335 },
+					{ lat: 35.1826, lng: -80.9313 },
+					{ lat: 35.1680, lng: -80.9320 },
+					{ lat: 35.1593, lng: -80.9415 },
+					{ lat: 35.1537, lng: -80.9580 },
+					{ lat: 35.1542, lng: -80.9773 },
+					{ lat: 35.1547, lng: -80.9965 },
+					{ lat: 35.1555, lng: -81.0220 },
+					{ lat: 35.1574, lng: -81.0628 },
+					{ lat: 35.1595, lng: -81.1048 },
+					{ lat: 35.1617, lng: -81.1495 },
+					{ lat: 35.1656, lng: -81.2211 },
+					{ lat: 35.1684, lng: -81.2760 },
+					{ lat: 35.1710, lng: -81.3355 },
+					{ lat: 35.1737, lng: -81.4013 },
+					{ lat: 35.1702, lng: -81.4856 },
+					{ lat: 35.1674, lng: -81.5499 },
+					{ lat: 35.1646, lng: -81.6145 },
+					{ lat: 35.1616, lng: -81.6837 },
+					{ lat: 35.1586, lng: -81.7520 },
+					{ lat: 35.1556, lng: -81.8197 },
+					{ lat: 35.1527, lng: -81.8865 },
+                ]
+            },
+            {
+                name: 'FFT1445',
+                type: 'departure',
+                runway: '36R',
+                color: '#16a085',
+                path: [
+                    runways['36R'],
+					{ lat: 35.2102, lng: -80.9349 },
+					{ lat: 35.1979, lng: -80.9337 },
+					{ lat: 35.1878, lng: -80.9325 },
+					{ lat: 35.1767, lng: -80.9307 },
+					{ lat: 35.1626, lng: -80.9283 },
+					{ lat: 35.1477, lng: -80.9257 },
+					{ lat: 35.1282, lng: -80.9223 },
+					{ lat: 35.0927, lng: -80.9160 },
+					{ lat: 35.0544, lng: -80.9093 },
+					{ lat: 35.0132, lng: -80.9022 },
+					{ lat: 34.9749, lng: -80.8955 },
+					{ lat: 34.9149, lng: -80.8852 },
+					{ lat: 34.8684, lng: -80.8774 },
+					{ lat: 34.8218, lng: -80.8693 },
+					{ lat: 34.7755, lng: -80.8612 },
+					{ lat: 34.7258, lng: -80.8526 },
+					{ lat: 34.6810, lng: -80.8450 },
+					{ lat: 34.6259, lng: -80.8399 },
+					{ lat: 34.5977, lng: -80.8303 },
+					{ lat: 34.5351, lng: -80.7873 },
+					{ lat: 34.4868, lng: -80.7535 },
+					{ lat: 34.4396, lng: -80.7208 },
+					{ lat: 34.3888, lng: -80.6859 },
+					{ lat: 34.3362, lng: -80.6498 },
+					{ lat: 34.2896, lng: -80.6177 },
+					{ lat: 34.2378, lng: -80.5821 },
+					{ lat: 34.1836, lng: -80.5449 },
+					{ lat: 34.1275, lng: -80.5066 },
+					{ lat: 34.0704, lng: -80.4675 },
+					{ lat: 34.0158, lng: -80.4302 },
+					{ lat: 33.9581, lng: -80.3909 },
+					{ lat: 33.9036, lng: -80.3539 },
+					{ lat: 33.8483, lng: -80.3164 },
+					{ lat: 33.7908, lng: -80.2772 },
+					{ lat: 33.7504, lng: -80.2499 },
+					{ lat: 33.7122, lng: -80.2334 },
+					{ lat: 33.6669, lng: -80.2295 },
+					{ lat: 33.6231, lng: -80.2401 },
+					{ lat: 33.5723, lng: -80.2632 },
+					{ lat: 33.5187, lng: -80.2862 },
+					{ lat: 33.4652, lng: -80.3090 },
+                ]
+            }
+        ];
+        
+        // RNAV STAR 도착 경로 데이터 (실제 활주로 기반)
+        const arrivalRoutes = [
+            // 36R 활주로 도착 (서쪽 활주로, 북향 착륙)
+            {
+                name: 'AAL1462',
+                type: 'arrival',
+                runway: '36R',
+                color: '#27ae60',
+                path: [
+					{ lat: 34.9052, lng: -80.8051 },
+					{ lat: 34.8764, lng: -80.8027 },
+					{ lat: 34.8602, lng: -80.8038 },
+					{ lat: 34.8489, lng: -80.8165 },
+					{ lat: 34.8460, lng: -80.8337 },
+					{ lat: 34.8442, lng: -80.8548 },
+					{ lat: 34.8451, lng: -80.8709 },
+					{ lat: 34.8638, lng: -80.8909 },
+					{ lat: 34.8780, lng: -80.9011 },
+					{ lat: 34.8900, lng: -80.9062 },
+					{ lat: 34.9055, lng: -80.9085 },
+					{ lat: 34.9308, lng: -80.9110 },
+					{ lat: 34.9570, lng: -80.9133 },
+					{ lat: 34.9702, lng: -80.9145 },
+					{ lat: 34.9957, lng: -80.9166 },
+					{ lat: 35.0220, lng: -80.9188 },
+					{ lat: 35.0470, lng: -80.9209 },
+					{ lat: 35.0728, lng: -80.9232 },
+					{ lat: 35.0980, lng: -80.9253 },
+					{ lat: 35.1219, lng: -80.9274 },
+					{ lat: 35.1435, lng: -80.9292 },
+					{ lat: 35.1542, lng: -80.9301 },
+					{ lat: 35.1662, lng: -80.9312 },
+					{ lat: 35.1774, lng: -80.9321 },
+					{ lat: 35.1875, lng: -80.9330 },
+					{ lat: 35.1980, lng: -80.9338 },
+                    runways['36R']
+                ]
+            },
+            {
+                name: 'AAL894',
+                type: 'arrival',
+                runway: '36R',
+                color: '#8e44ad',
+                path: [
+					{ lat: 34.9390, lng: -80.7592 },
+					{ lat: 34.9126, lng: -80.7684 },
+					{ lat: 34.8877, lng: -80.7784 },
+					{ lat: 34.8695, lng: -80.7861 },
+					{ lat: 34.8595, lng: -80.7984 },
+					{ lat: 34.8565, lng: -80.8194 },
+					{ lat: 34.8536, lng: -80.8503 },
+					{ lat: 34.8548, lng: -80.8670 },
+					{ lat: 34.8655, lng: -80.8807 },
+					{ lat: 34.8830, lng: -80.8947 },
+					{ lat: 34.8952, lng: -80.9044 },
+					{ lat: 34.9088, lng: -80.9091 },
+					{ lat: 34.9371, lng: -80.9114 },
+					{ lat: 34.9638, lng: -80.9138 },
+					{ lat: 34.9890, lng: -80.9164 },
+					{ lat: 35.0141, lng: -80.9182 },
+					{ lat: 35.0395, lng: -80.9201 },
+					{ lat: 35.0654, lng: -80.9224 },
+					{ lat: 35.0902, lng: -80.9245 },
+					{ lat: 35.1150, lng: -80.9268 },
+					{ lat: 35.1390, lng: -80.9289 },
+					{ lat: 35.1438, lng: -80.9294 },
+					{ lat: 35.1509, lng: -80.9299 },
+					{ lat: 35.1627, lng: -80.9308 },
+					{ lat: 35.1752, lng: -80.9319 },
+					{ lat: 35.1862, lng: -80.9329 },
+                    runways['36R']
+                ]
+            },
+
+            <!-- // 36C 활주로 도착 (중앙 활주로, 북향 착륙) -->
+            <!-- { -->
+                <!-- name: 'CHSLY SIX Arrival to 36C', -->
+                <!-- type: 'arrival', -->
+                <!-- runway: '36C', -->
+                <!-- color: '#2ecc71', -->
+                <!-- path: [ -->
+                    <!-- { lat: 35.300, lng: -80.500 }, -->
+                    <!-- { lat: 35.280, lng: -80.600 }, -->
+                    <!-- { lat: 35.260, lng: -80.700 }, -->
+                    <!-- { lat: 35.240, lng: -80.800 }, -->
+                    <!-- { lat: 35.230, lng: -80.850 }, -->
+                    <!-- runways['36C'] -->
+                <!-- ] -->
+            <!-- }, -->
+            <!-- { -->
+                <!-- name: 'FILPZ FOUR Arrival to 36C', -->
+                <!-- type: 'arrival', -->
+                <!-- runway: '36C', -->
+                <!-- color: '#9b59b6', -->
+                <!-- path: [ -->
+                    <!-- { lat: 35.600, lng: -80.600 }, -->
+                    <!-- { lat: 35.520, lng: -80.680 }, -->
+                    <!-- { lat: 35.440, lng: -80.750 }, -->
+                    <!-- { lat: 35.350, lng: -80.820 }, -->
+                    <!-- { lat: 35.280, lng: -80.880 }, -->
+                    <!-- runways['36C'] -->
+                <!-- ] -->
+            <!-- }, -->
+            <!-- { -->
+                <!-- name: 'MLLET THREE Arrival to 36C', -->
+                <!-- type: 'arrival', -->
+                <!-- runway: '36C', -->
+                <!-- color: '#2c3e50', -->
+                <!-- path: [ -->
+                    <!-- { lat: 35.600, lng: -81.200 }, -->
+                    <!-- { lat: 35.520, lng: -81.120 }, -->
+                    <!-- { lat: 35.440, lng: -81.040 }, -->
+                    <!-- { lat: 35.360, lng: -80.980 }, -->
+                    <!-- { lat: 35.290, lng: -80.940 }, -->
+                    <!-- runways['36C'] -->
+                <!-- ] -->
+            <!-- }, -->
+
+            // 36L 활주로 도착 (동쪽 활주로, 북향 착륙)
+            {
+                name: 'AAL609',
+                type: 'arrival',
+                runway: '36L',
+                color: '#f39c12',
+                path: [
+					{ lat: 34.7208, lng: -81.1468 },
+					{ lat: 34.7390, lng: -81.1046 },
+					{ lat: 34.7566, lng: -81.0626 },
+					{ lat: 34.7683, lng: -81.0381 },
+					{ lat: 34.7829, lng: -81.0246 },
+					{ lat: 34.8040, lng: -81.0116 },
+					{ lat: 34.8359, lng: -80.9927 },
+					{ lat: 34.8674, lng: -80.9740 },
+					{ lat: 34.8992, lng: -80.9551 },
+					{ lat: 34.9177, lng: -80.9453 },
+					{ lat: 34.9347, lng: -80.9432 },
+					{ lat: 34.9644, lng: -80.9450 },
+					{ lat: 34.9905, lng: -80.9471 },
+					{ lat: 35.0176, lng: -80.9496 },
+					{ lat: 35.0440, lng: -80.9519 },
+					{ lat: 35.0686, lng: -80.9540 },
+					{ lat: 35.0951, lng: -80.9563 },
+					{ lat: 35.1196, lng: -80.9583 },
+					{ lat: 35.1422, lng: -80.9603 },
+					{ lat: 35.1527, lng: -80.9612 },
+					{ lat: 35.1638, lng: -80.9621 },
+					{ lat: 35.1759, lng: -80.9632 },
+					{ lat: 35.1865, lng: -80.9641 },
+					{ lat: 35.1967, lng: -80.9650 },
+					{ lat: 35.2090, lng: -80.9660 },
+                    runways['36L']
+                ]
+            },
+            {
+                name: 'AAL2530',
+                type: 'arrival',
+                runway: '36L',
+                color: '#f39c12',
+                path: [
+					{ lat: 35.3750, lng: -81.1316 },
+					{ lat: 35.3364, lng: -81.1112 },
+					{ lat: 35.2988, lng: -81.0910 },
+					{ lat: 35.2736, lng: -81.0776 },
+					{ lat: 35.2152, lng: -81.0687 },
+					{ lat: 35.1755, lng: -81.0649 },
+					{ lat: 35.1360, lng: -81.0613 },
+					{ lat: 35.0974, lng: -81.0578 },
+					{ lat: 35.0591, lng: -81.0543 },
+					{ lat: 35.0401, lng: -81.0527 },
+					{ lat: 35.0381, lng: -81.0525 },
+					{ lat: 35.0188, lng: -81.0506 },
+					{ lat: 34.9997, lng: -81.0412 },
+					{ lat: 34.9872, lng: -81.0231 },
+					{ lat: 34.9832, lng: -80.9988 },
+					{ lat: 34.9890, lng: -80.9775 },
+					{ lat: 35.0079, lng: -80.9602 },
+					{ lat: 35.0245, lng: -80.9525 },
+					{ lat: 35.0411, lng: -80.9521 },
+					{ lat: 35.0618, lng: -80.9536 },
+					{ lat: 35.0870, lng: -80.9556 },
+					{ lat: 35.1143, lng: -80.9578 },
+					{ lat: 35.1364, lng: -80.9598 },
+					{ lat: 35.1422, lng: -80.9602 },
+					{ lat: 35.1483, lng: -80.9608 },
+					{ lat: 35.1581, lng: -80.9616 },
+					{ lat: 35.1695, lng: -80.9627 },
+					{ lat: 35.1795, lng: -80.9635 },
+					{ lat: 35.1902, lng: -80.9644 },
+					{ lat: 35.2011, lng: -80.9654 },
+					{ lat: 35.2139, lng: -80.9664 },
+                    runways['36L']
+                ]
+            },
+            {
+                name: 'AAL1729',
+                type: 'arrival',
+                runway: '36L',
+                color: '#f39c12',
+                path: [
+					{ lat: 35.0925, lng: -81.0576 },
+					{ lat: 35.0596, lng: -81.0546 },
+					{ lat: 35.0440, lng: -81.0533 },
+					{ lat: 35.0271, lng: -81.0519 },
+					{ lat: 35.0106, lng: -81.0505 },
+					{ lat: 34.9935, lng: -81.0491 },
+					{ lat: 34.9766, lng: -81.0477 },
+					{ lat: 34.9586, lng: -81.0461 },
+					{ lat: 34.9427, lng: -81.0447 },
+					{ lat: 34.9247, lng: -81.0432 },
+					{ lat: 34.9072, lng: -81.0405 },
+					{ lat: 34.8920, lng: -81.0243 },
+					{ lat: 34.8891, lng: -81.0064 },
+					{ lat: 34.8914, lng: -80.9841 },
+					{ lat: 34.8940, lng: -80.9632 },
+					{ lat: 34.9074, lng: -80.9473 },
+					{ lat: 34.9238, lng: -80.9437 },
+					{ lat: 34.9448, lng: -80.9427 },
+					{ lat: 34.9593, lng: -80.9438 },
+					{ lat: 34.9755, lng: -80.9459 },
+					{ lat: 35.0008, lng: -80.9482 },
+					{ lat: 35.0250, lng: -80.9503 },
+					{ lat: 35.0498, lng: -80.9524 },
+					{ lat: 35.0735, lng: -80.9544 },
+					{ lat: 35.0972, lng: -80.9564 },
+					{ lat: 35.1205, lng: -80.9584 },
+					{ lat: 35.1374, lng: -80.9598 },
+					{ lat: 35.1423, lng: -80.9603 },
+					{ lat: 35.1495, lng: -80.9608 },
+					{ lat: 35.1623, lng: -80.9620 },
+					{ lat: 35.1738, lng: -80.9630 },
+					{ lat: 35.1865, lng: -80.9641 },
+					{ lat: 35.1971, lng: -80.9650 },
+					{ lat: 35.2111, lng: -80.9662 },
+                    runways['36L']
+                ]
+            },
+
+
+            // 18L 활주로 도착 (서쪽 활주로, 남향 착륙)
+            {
+                name: 'AAL1894',
+                type: 'arrival',
+                runway: '18L',
+                color: '#16a085',
+                path: [
+                    { lat: 35.5960, lng: -80.7429 },
+					{ lat: 35.5864, lng: -80.7760 },
+					{ lat: 35.5753, lng: -80.8191 },
+					{ lat: 35.5695, lng: -80.8427 },
+					{ lat: 35.5637, lng: -80.8666 },
+					{ lat: 35.5588, lng: -80.8863 },
+					{ lat: 35.5538, lng: -80.9066 },
+					{ lat: 35.5491, lng: -80.9279 },
+					{ lat: 35.5435, lng: -80.9436 },
+					{ lat: 35.5301, lng: -80.9559 },
+					{ lat: 35.5140, lng: -80.9600 },
+					{ lat: 35.4838, lng: -80.9584 },
+					{ lat: 35.4534, lng: -80.9559 },
+					{ lat: 35.4234, lng: -80.9532 },
+					{ lat: 35.3936, lng: -80.9507 },
+					{ lat: 35.3648, lng: -80.9482 },
+					{ lat: 35.3401, lng: -80.9460 },
+					{ lat: 35.3169, lng: -80.9441 },
+					{ lat: 35.2935, lng: -80.9421 },
+					{ lat: 35.2853, lng: -80.9413 },
+					{ lat: 35.2830, lng: -80.9411 },
+					{ lat: 35.2723, lng: -80.9402 },
+					{ lat: 35.2634, lng: -80.9395 },
+					{ lat: 35.2533, lng: -80.9386 },
+					{ lat: 35.2440, lng: -80.9378 },
+					{ lat: 35.2348, lng: -80.9370 },
+					{ lat: 35.2232, lng: -80.9361 },
+                    runways['18L']
+                ]
+            },
+            {
+                name: 'AAL985',
+                type: 'arrival',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+					{ lat: 35.0503, lng: -80.7848 },
+					{ lat: 35.0748, lng: -80.8106 },
+					{ lat: 35.0958, lng: -80.8213 },
+					{ lat: 35.1200, lng: -80.8233 },
+					{ lat: 35.1560, lng: -80.8266 },
+					{ lat: 35.1874, lng: -80.8295 },
+					{ lat: 35.2218, lng: -80.8323 },
+					{ lat: 35.2542, lng: -80.8351 },
+					{ lat: 35.2866, lng: -80.8380 },
+					{ lat: 35.3198, lng: -80.8409 },
+					{ lat: 35.3523, lng: -80.8437 },
+					{ lat: 35.3730, lng: -80.8466 },
+					{ lat: 35.3895, lng: -80.8606 },
+					{ lat: 35.3941, lng: -80.8816 },
+					{ lat: 35.3922, lng: -80.9081 },
+					{ lat: 35.3855, lng: -80.9232 },
+					{ lat: 35.3692, lng: -80.9340 },
+					{ lat: 35.3542, lng: -80.9411 },
+					{ lat: 35.3387, lng: -80.9448 },
+					{ lat: 35.3227, lng: -80.9441 },
+					{ lat: 35.2952, lng: -80.9422 },
+					{ lat: 35.2855, lng: -80.9414 },
+					{ lat: 35.2825, lng: -80.9411 },
+					{ lat: 35.2715, lng: -80.9401 },
+					{ lat: 35.2617, lng: -80.9394 },
+					{ lat: 35.2517, lng: -80.9385 },
+					{ lat: 35.2428, lng: -80.9377 },
+					{ lat: 35.2323, lng: -80.9368 },
+					{ lat: 35.2225, lng: -80.9360 },
+                    runways['18L']
+                ]
+            },
+            {
+                name: 'AAL2248',
+                type: 'arrival',
+                runway: '18L',
+                color: '#e67e22',
+                path: [
+					{ lat: 35.1140, lng: -80.9111 },
+					{ lat: 35.1448, lng: -80.8722 },
+					{ lat: 35.1660, lng: -80.8550 },
+					{ lat: 35.1881, lng: -80.8508 },
+					{ lat: 35.2105, lng: -80.8537 },
+					{ lat: 35.2509, lng: -80.8602 },
+					{ lat: 35.2883, lng: -80.8676 },
+					{ lat: 35.3131, lng: -80.8714 },
+					{ lat: 35.3485, lng: -80.8680 },
+					{ lat: 35.3874, lng: -80.8629 },
+					{ lat: 35.4091, lng: -80.8610 },
+					{ lat: 35.4272, lng: -80.8674 },
+					{ lat: 35.4388, lng: -80.8845 },
+					{ lat: 35.4395, lng: -80.9058 },
+					{ lat: 35.4303, lng: -80.9214 },
+					{ lat: 35.4084, lng: -80.9340 },
+					{ lat: 35.3864, lng: -80.9446 },
+					{ lat: 35.3710, lng: -80.9478 },
+					{ lat: 35.3473, lng: -80.9464 },
+					{ lat: 35.3214, lng: -80.9445 },
+					{ lat: 35.2984, lng: -80.9425 },
+					{ lat: 35.2853, lng: -80.9415 },
+					{ lat: 35.2742, lng: -80.9403 },
+					{ lat: 35.2632, lng: -80.9394 },
+					{ lat: 35.2524, lng: -80.9385 },
+					{ lat: 35.2418, lng: -80.9376 },
+					{ lat: 35.2296, lng: -80.9366 },
+					{ lat: 35.2152, lng: -80.9353 },
+                ]
+            },
+            {
+                name: 'AAL2168',
+                type: 'arrival',
+                runway: '18L',
+                color: '#e74c3c',
+                path: [
+					{ lat: 35.0467, lng: -80.7807 },
+					{ lat: 35.0729, lng: -80.8089 },
+					{ lat: 35.0906, lng: -80.8204 },
+					{ lat: 35.1327, lng: -80.8252 },
+					{ lat: 35.1700, lng: -80.8280 },
+					{ lat: 35.2033, lng: -80.8307 },
+					{ lat: 35.2353, lng: -80.8334 },
+					{ lat: 35.2673, lng: -80.8362 },
+					{ lat: 35.3000, lng: -80.8390 },
+					{ lat: 35.3331, lng: -80.8418 },
+					{ lat: 35.3523, lng: -80.8438 },
+					{ lat: 35.3682, lng: -80.8538 },
+					{ lat: 35.3760, lng: -80.8734 },
+					{ lat: 35.3755, lng: -80.8973 },
+					{ lat: 35.3728, lng: -80.9183 },
+					{ lat: 35.3622, lng: -80.9325 },
+					{ lat: 35.3442, lng: -80.9418 },
+					{ lat: 35.3304, lng: -80.9444 },
+					{ lat: 35.3104, lng: -80.9432 },
+					{ lat: 35.2874, lng: -80.9415 },
+					{ lat: 35.2770, lng: -80.9407 },
+					{ lat: 35.2665, lng: -80.9398 },
+					{ lat: 35.2549, lng: -80.9388 },
+					{ lat: 35.2443, lng: -80.9379 },
+					{ lat: 35.2341, lng: -80.9370 },
+					{ lat: 35.2234, lng: -80.9361 },
+					{ lat: 35.2130, lng: -80.9352 },
+                    runways['18L']
+                ]
+            },
+
+            // 18C 활주로 도착 (중앙 활주로, 남향 착륙)
+            <!-- { -->
+                <!-- name: 'PARQR FOUR Arrival to 18C', -->
+                <!-- type: 'arrival', -->
+                <!-- runway: '18C', -->
+                <!-- color: '#1abc9c', -->
+                <!-- path: [ -->
+                    <!-- { lat: 34.800, lng: -80.900 }, -->
+                    <!-- { lat: 34.900, lng: -80.920 }, -->
+                    <!-- { lat: 35.000, lng: -80.930 }, -->
+                    <!-- { lat: 35.100, lng: -80.935 }, -->
+                    <!-- { lat: 35.150, lng: -80.940 }, -->
+                    <!-- runways['18C'] -->
+                <!-- ] -->
+            <!-- }, -->
+            <!-- { -->
+                <!-- name: 'BTSEY TWO Arrival to 18C', -->
+                <!-- type: 'arrival', -->
+                <!-- runway: '18C', -->
+                <!-- color: '#3498db', -->
+                <!-- path: [ -->
+                    <!-- { lat: 34.900, lng: -80.600 }, -->
+                    <!-- { lat: 34.980, lng: -80.700 }, -->
+                    <!-- { lat: 35.050, lng: -80.780 }, -->
+                    <!-- { lat: 35.120, lng: -80.850 }, -->
+                    <!-- { lat: 35.170, lng: -80.920 }, -->
+                    <!-- runways['18C'] -->
+                <!-- ] -->
+            <!-- }, -->
+
+            // 18R 활주로 도착 (동쪽 활주로, 남향 착륙)
+            {
+                name: 'AAL1698',
+                type: 'arrival',
+                runway: '18R',
+                color: '#27ae60',
+                path: [
+						{ lat: 35.5500, lng: -81.5155 },
+						{ lat: 35.5555, lng: -81.4835 },
+						{ lat: 35.5592, lng: -81.4372 },
+						{ lat: 35.5631, lng: -81.3845 },
+						{ lat: 35.5657, lng: -81.3535 },
+						{ lat: 35.5718, lng: -81.3064 },
+						{ lat: 35.5730, lng: -81.2758 },
+						{ lat: 35.5723, lng: -81.2445 },
+						{ lat: 35.5679, lng: -81.2164 },
+						{ lat: 35.5506, lng: -81.1880 },
+						{ lat: 35.5316, lng: -81.1638 },
+						{ lat: 35.5194, lng: -81.1478 },
+						{ lat: 35.5151, lng: -81.1423 },
+						{ lat: 35.5010, lng: -81.1236 },
+						{ lat: 35.4868, lng: -81.1048 },
+						{ lat: 35.4734, lng: -81.0874 },
+						{ lat: 35.4523, lng: -81.0595 },
+						{ lat: 35.4284, lng: -81.0282 },
+						{ lat: 35.4050, lng: -80.9975 },
+						{ lat: 35.3930, lng: -80.9856 },
+						{ lat: 35.3764, lng: -80.9806 },
+						{ lat: 35.3577, lng: -80.9788 },
+						{ lat: 35.3299, lng: -80.9764 },
+						{ lat: 35.3046, lng: -80.9743 },
+						{ lat: 35.2832, lng: -80.9723 },
+						{ lat: 35.2724, lng: -80.9715 },
+						{ lat: 35.2613, lng: -80.9705 },
+						{ lat: 35.2507, lng: -80.9697 },
+						{ lat: 35.2390, lng: -80.9686 },
+						{ lat: 35.2282, lng: -80.9677 },
+						{ lat: 35.2162, lng: -80.9667 },
+                    runways['18R']
+                ]
+            },
+            {
+                name: 'AAL1876',
+                type: 'arrival',
+                runway: '18R',
+                color: '#27ae60',
+                path: [
+						{ lat: 35.4857, lng: -81.4224 },
+						{ lat: 35.4828, lng: -81.3679 },
+						{ lat: 35.4804, lng: -81.3182 },
+						{ lat: 35.4782, lng: -81.2738 },
+						{ lat: 35.4753, lng: -81.2494 },
+						{ lat: 35.4691, lng: -81.2296 },
+						{ lat: 35.4607, lng: -81.2041 },
+						{ lat: 35.4524, lng: -81.1790 },
+						{ lat: 35.4511, lng: -81.1751 },
+						{ lat: 35.4445, lng: -81.1546 },
+						{ lat: 35.4381, lng: -81.1342 },
+						{ lat: 35.4316, lng: -81.1132 },
+						{ lat: 35.4224, lng: -81.0833 },
+						{ lat: 35.4111, lng: -81.0466 },
+						{ lat: 35.4040, lng: -81.0240 },
+						{ lat: 35.3916, lng: -81.0053 },
+						{ lat: 35.3676, lng: -80.9853 },
+						{ lat: 35.3538, lng: -80.9792 },
+						{ lat: 35.3328, lng: -80.9767 },
+						{ lat: 35.3128, lng: -80.9750 },
+						{ lat: 35.2916, lng: -80.9731 },
+						{ lat: 35.2835, lng: -80.9724 },
+						{ lat: 35.2826, lng: -80.9723 },
+						{ lat: 35.2728, lng: -80.9715 },
+						{ lat: 35.2636, lng: -80.9706 },
+						{ lat: 35.2545, lng: -80.9699 },
+						{ lat: 35.2442, lng: -80.9691 },
+						{ lat: 35.2348, lng: -80.9683 },
+						{ lat: 35.2252, lng: -80.9674 },
+                    runways['18R']
+                ]
+            },
+            {
+                name: 'DAL15',
+                type: 'arrival',
+                runway: '18R',
+                color: '#27ae60',
+                path: [
+						{ lat: 35.0684, lng: -81.1100 },
+						{ lat: 35.0950, lng: -81.0757 },
+						{ lat: 35.1125, lng: -81.0626 },
+						{ lat: 35.1339, lng: -81.0610 },
+						{ lat: 35.1698, lng: -81.0640 },
+						{ lat: 35.1997, lng: -81.0668 },
+						{ lat: 35.2232, lng: -81.0689 },
+						{ lat: 35.2420, lng: -81.0706 },
+						{ lat: 35.2755, lng: -81.0735 },
+						{ lat: 35.3073, lng: -81.0764 },
+						{ lat: 35.3401, lng: -81.0793 },
+						{ lat: 35.3701, lng: -81.0817 },
+						{ lat: 35.3862, lng: -81.0765 },
+						{ lat: 35.3954, lng: -81.0592 },
+						{ lat: 35.3989, lng: -81.0397 },
+						{ lat: 35.3979, lng: -81.0202 },
+						{ lat: 35.3893, lng: -81.0039 },
+						{ lat: 35.3646, lng: -80.9852 },
+						{ lat: 35.3522, lng: -80.9787 },
+						{ lat: 35.3378, lng: -80.9768 },
+						{ lat: 35.3123, lng: -80.9750 },
+						{ lat: 35.2879, lng: -80.9728 },
+						{ lat: 35.2829, lng: -80.9724 },
+						{ lat: 35.2773, lng: -80.9719 },
+						{ lat: 35.2664, lng: -80.9709 },
+						{ lat: 35.2565, lng: -80.9702 },
+						{ lat: 35.2465, lng: -80.9693 },
+						{ lat: 35.2363, lng: -80.9684 },
+						{ lat: 35.2265, lng: -80.9676 },
+                    runways['18R']
+                ]
+            },
+			{
+					name: 'AAL1379',
+					type: 'arrival',
+					runway: '18R',
+					color: '#16a085',
+					path: [
+							{ lat: 35.5681, lng: -80.7106 },
+							{ lat: 35.5676, lng: -80.7479 },
+							{ lat: 35.5671, lng: -80.7849 },
+							{ lat: 35.5645, lng: -80.8084 },
+							{ lat: 35.5598, lng: -80.8440 },
+							{ lat: 35.5573, lng: -80.8691 },
+							{ lat: 35.5554, lng: -80.8887 },
+							{ lat: 35.5534, lng: -80.9101 },
+							{ lat: 35.5510, lng: -80.9310 },
+							{ lat: 35.5423, lng: -80.9471 },
+							{ lat: 35.5250, lng: -80.9659 },
+							{ lat: 35.5116, lng: -80.9797 },
+							{ lat: 35.4945, lng: -80.9881 },
+							{ lat: 35.4737, lng: -80.9902 },
+							{ lat: 35.4482, lng: -80.9874 },
+							{ lat: 35.4211, lng: -80.9842 },
+							{ lat: 35.3984, lng: -80.9822 },
+							{ lat: 35.3710, lng: -80.9799 },
+							{ lat: 35.3445, lng: -80.9776 },
+							{ lat: 35.3193, lng: -80.9755 },
+							{ lat: 35.2957, lng: -80.9734 },
+							{ lat: 35.2832, lng: -80.9724 },
+							{ lat: 35.2729, lng: -80.9716 },
+							{ lat: 35.2608, lng: -80.9705 },
+							{ lat: 35.2501, lng: -80.9695 },
+							{ lat: 35.2398, lng: -80.9686 },
+							{ lat: 35.2293, lng: -80.9678 },
+							{ lat: 35.2159, lng: -80.9666 },
+						runways['18R']
+					]
+				}	
+        ];
+        
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 10,
+                center: kcltCoords,
+                mapTypeId: 'hybrid',
+                styles: [
+                    {
+                        featureType: 'all',
+                        elementType: 'labels.text.fill',
+                        stylers: [{ color: '#ffffff' }]
+                    },
+                    {
+                        featureType: 'all',
+                        elementType: 'labels.text.stroke',
+                        stylers: [{ color: '#000000' }, { weight: 2 }]
+                    }
+                ]
+            });
+            
+            // 공항 마커 추가
+            airportMarker = new google.maps.Marker({
+                position: kcltCoords,
+                map: map,
+                title: 'KCLT - 샬럿 더글러스 국제공항',
+                icon: {
+                    url: 'data:image/svg+xml,' + encodeURIComponent(`
+                        <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="20" cy="20" r="18" fill="#3498db" stroke="#ffffff" stroke-width="2"/>
+                            <text x="20" y="25" text-anchor="middle" fill="white" font-family="Arial" font-size="16" font-weight="bold">✈</text>
+                        </svg>
+                    `),
+                    scaledSize: new google.maps.Size(40, 40),
+                    anchor: new google.maps.Point(20, 20)
+                }
+            });
+            
+            // 활주로 마커들 추가
+            createRunwayMarkers();
+            
+            // 공항 정보창
+            const infoWindow = new google.maps.InfoWindow({
+                content: `
+                    <div style="text-align: center; padding: 10px;">
+                        <h3 style="margin: 0; color: #2c3e50;">✈️ KCLT</h3>
+                        <p style="margin: 5px 0; color: #34495e;"><strong>샬럿 더글러스 국제공항</strong></p>
+                        <p style="margin: 5px 0; font-size: 12px; color: #7f8c8d;">
+                            위도: ${kcltCoords.lat.toFixed(3)}°N<br>
+                            경도: ${kcltCoords.lng.toFixed(3)}°W
+                        </p>
+                    </div>
+                `
+            });
+            
+            airportMarker.addListener('click', () => {
+                infoWindow.open(map, airportMarker);
+            });
+            
+            // 기본적으로 출발 경로 표시
+            showRoutes('departures');
+            
+            // 주소 마커들 추가
+            createAddressMarkers();
+        }
+        
+        function createRunwayMarkers() {
+            // 활주로별 마커 생성
+            const runwayInfo = {
+                '18L': { name: '18L/36R (서쪽)', length: '10,000ft' },
+                '18C': { name: '18C/36C (중앙)', length: '9,000ft' },
+                '18R': { name: '18R/36L (동쪽)', length: '10,000ft' },
+                '36L': { name: '36L/18R (동쪽)', length: '10,000ft' },
+                '36C': { name: '36C/18C (중앙)', length: '9,000ft' },
+                '36R': { name: '36R/18L (서쪽)', length: '10,000ft' }
+            };
+            
+            Object.keys(runways).forEach(runwayId => {
+                if (runwayInfo[runwayId]) {
+                    const marker = new google.maps.Marker({
+                        position: runways[runwayId],
+                        map: map,
+                        title: `활주로 ${runwayId}`,
+                        icon: {
+                            url: 'data:image/svg+xml,' + encodeURIComponent(`
+                                <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="8" y="2" width="8" height="20" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+                                    <text x="12" y="13" text-anchor="middle" fill="white" font-family="Arial" font-size="8" font-weight="bold">${runwayId}</text>
+                                </svg>
+                            `),
+                            scaledSize: new google.maps.Size(24, 24),
+                            anchor: new google.maps.Point(12, 12)
+                        }
+                    });
+                    
+                    const infoWindow = new google.maps.InfoWindow({
+                        content: `
+                            <div style="text-align: center; padding: 8px;">
+                                <h4 style="margin: 0; color: #2c3e50;">🛫 활주로 ${runwayId}</h4>
+                                <p style="margin: 5px 0; font-weight: bold;">${runwayInfo[runwayId].name}</p>
+                                <p style="margin: 5px 0; font-size: 12px;">길이: ${runwayInfo[runwayId].length}</p>
+                            </div>
+                        `
+                    });
+                    
+                    marker.addListener('click', () => {
+                        infoWindow.open(map, marker);
+                    });
+                }
+            });
+        }
+        
+        function createAddressMarkers() {
+            addresses.forEach((addr, index) => {
+                const marker = new google.maps.Marker({
+                    position: { lat: addr.lat, lng: addr.lng },
+                    map: map,
+                    title: addr.name,
+                    icon: {
+                        url: 'data:image/svg+xml,' + encodeURIComponent(`
+                            <svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="15" cy="15" r="13" fill="#f39c12" stroke="#ffffff" stroke-width="2"/>
+                                <text x="15" y="19" text-anchor="middle" fill="white" font-family="Arial" font-size="12" font-weight="bold">${index + 1}</text>
+                            </svg>
+                        `),
+                        scaledSize: new google.maps.Size(30, 30),
+                        anchor: new google.maps.Point(15, 15)
+                    }
+                });
+                
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `
+                        <div style="text-align: center; padding: 10px; max-width: 250px;">
+                            <h4 style="margin: 0; color: #f39c12;">📍 위치 ${index + 1}</h4>
+                            <p style="margin: 5px 0; color: #2c3e50; font-weight: bold;">${addr.name}</p>
+                            <p style="margin: 5px 0; font-size: 12px; color: #7f8c8d;">
+                                ${addr.address}
+                            </p>
+                            <p style="margin: 5px 0; font-size: 11px; color: #95a5a6;">
+                                위도: ${addr.lat.toFixed(3)}°N<br>
+                                경도: ${addr.lng.toFixed(3)}°W
+                            </p>
+                        </div>
+                    `
+                });
+                
+                marker.addListener('click', () => {
+                    infoWindow.open(map, marker);
+                });
+                
+                addressMarkers.push(marker);
+            });
+        }
+        
+        function createPolyline(route) {
+            const polyline = new google.maps.Polyline({
+                path: route.path,
+                geodesic: true,
+                strokeColor: route.color,
+                strokeOpacity: 0.8,
+                strokeWeight: 4,
+                map: map
+            });
+            
+            // 경로에 방향 화살표 추가
+            const symbols = [{
+                icon: {
+                    path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                    scale: 4,
+                    fillColor: route.color,
+                    fillOpacity: 0.8,
+                    strokeColor: '#ffffff',
+                    strokeWeight: 1
+                },
+                repeat: '100px'
+            }];
+            
+            polyline.setOptions({ icons: symbols });
+            
+            // 경로 클릭 시 정보 표시
+            const infoWindow = new google.maps.InfoWindow();
+            polyline.addListener('click', (event) => {
+                const runwayInfo = route.runway ? ` (활주로 ${route.runway})` : '';
+                infoWindow.setContent(`
+                    <div style="text-align: center; padding: 8px;">
+                        <h4 style="margin: 0; color: ${route.color};">${route.name}</h4>
+                        <p style="margin: 5px 0; font-size: 12px;">
+                            ${route.type === 'departure' ? '🛫 출발' : '🛬 도착'} 경로${runwayInfo}
+                        </p>
+                        ${route.runway ? `<p style="margin: 5px 0; font-size: 11px; color: #7f8c8d;">실제 활주로 기반 경로</p>` : ''}
+                    </div>
+                `);
+                infoWindow.setPosition(event.latLng);
+                infoWindow.open(map);
+            });
+            
+            return polyline;
+        }
+        
+        function showRoutes(type) {
+            clearRoutes();
+            
+            let routesToShow = [];
+            if (type === 'departures') {
+                routesToShow = departureRoutes;
+            } else if (type === 'arrivals') {
+                routesToShow = arrivalRoutes;
+            } else if (type === 'all') {
+                routesToShow = [...departureRoutes, ...arrivalRoutes];
+            }
+            
+            routesToShow.forEach(route => {
+                const polyline = createPolyline(route);
+                currentRoutes.push(polyline);
+            });
+        }
+        
+        function clearRoutes() {
+            currentRoutes.forEach(route => {
+                route.setMap(null);
+            });
+            currentRoutes = [];
+        }
+        
+        function toggleRoutes(type) {
+            // 버튼 활성화 상태 업데이트
+            document.querySelectorAll('.control-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            showRoutes(type);
+        }
+        
+        function toggleAddresses() {
+            const btn = event.target;
+            btn.classList.toggle('active');
+            
+            const isVisible = addressMarkers[0].getMap() !== null;
+            addressMarkers.forEach(marker => {
+                marker.setMap(isVisible ? null : map);
+            });
+        }
+        
+        // 지도 크기 조정 (모바일 대응)
+        function resizeMap() {
+            if (map) {
+                google.maps.event.trigger(map, 'resize');
+                map.setCenter(kcltCoords);
+            }
+        }
+        
+        window.addEventListener('resize', resizeMap);
+        
+        // 터치 이벤트 최적화 (모바일)
+        if ('ontouchstart' in window) {
+            document.addEventListener('touchstart', function() {}, { passive: true });
+        }
+    </script>
+    
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBoXJKA2-70FhMIInPFAc5-zM2mu3KAx9Y&callback=initMap"></script>
+</body>
+</html>
